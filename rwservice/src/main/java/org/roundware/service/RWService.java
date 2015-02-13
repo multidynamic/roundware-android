@@ -31,17 +31,15 @@ import android.os.StrictMode;
 import android.text.TextUtils;
 import android.util.Log;
 
-import org.roundware.service.R;
-import org.roundware.service.util.RWList;
-import org.roundware.service.util.RWSharedPrefsHelper;
-import org.roundware.service.util.RWUriHelper;
-
 import org.apache.http.HttpException;
 import org.apache.http.HttpStatus;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
+import org.roundware.service.util.RWList;
+import org.roundware.service.util.RWSharedPrefsHelper;
+import org.roundware.service.util.RWUriHelper;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -344,7 +342,11 @@ import java.util.TimerTask;
             try {
                 debugLog("reset: " + playUrl);
                 synchronized (this) {
-                    mPlayer.reset();
+                    if(mPlayer == null){
+                        createPlayer();
+                    }else {
+                        mPlayer.reset();
+                    }
                     mPlayer.setDataSource(playUrl);
                     mPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
                     debugLog("Preparing: " + playUrl);
@@ -1323,7 +1325,7 @@ import java.util.TimerTask;
      * @return server response, empty string when queued
      */
     public String rwSendMoveListener(boolean now) {
-        if ((configuration.getSessionId() != null) && (isPlaying()) && (!isPlayingMuted())) {
+        if (configuration.getSessionId() != null && isPrepared) {
             return perform(mActionFactory.createModifyStreamAction(), now);
         }
         return null;
@@ -1969,7 +1971,7 @@ import java.util.TimerTask;
                         isPrepared = true;
                         mPrepareTime = System.currentTimeMillis() - mStartTime;
                     }
-
+                    rwSendMoveListener(false);
                     broadcast(RW.READY_TO_PLAY);
                     if (mStartPlayingWhenReady) {
                         playbackFadeIn(mVolumeLevel);
