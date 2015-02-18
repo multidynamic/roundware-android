@@ -99,6 +99,7 @@ public class RwListenActivity extends Activity {
     private int mPreviousAssetId;
     private AssetImageManager mAssetImageManager = null;
     private boolean mStartPlaybackOnResume = false;
+    private boolean mWasPlaying = true;
 
 
     /**
@@ -255,6 +256,7 @@ public class RwListenActivity extends Activity {
         registerReceiver(rwReceiver, filter);
 
         if(mStartPlaybackOnResume){
+            mStartPlaybackOnResume = false;
             startPlayback();
         }
     }
@@ -339,8 +341,8 @@ public class RwListenActivity extends Activity {
         mRecordButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                mWasPlaying = (mRwBinder != null) && mRwBinder.isPlaying() && !mRwBinder.isPlayingMuted();
                 stopPlayback();
-                mStartPlaybackOnResume = true;
                 RwSpeakActivity.showLegalDialogIfNeeded(RwListenActivity.this,
                         mRwBinder,
                         R.drawable.headphones_button,
@@ -755,7 +757,7 @@ public class RwListenActivity extends Activity {
                 }
             }
         }else if(requestCode == ClassRegistry.get("RwSpeakActivity").hashCode() ){
-            mStartPlaybackOnResume = true;
+            mStartPlaybackOnResume = mWasPlaying;
         }else{
             super.onActivityResult(requestCode, resultCode, data);
         }
