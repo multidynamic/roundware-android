@@ -9,7 +9,7 @@ package org.roundware.rwapp;
  */
 public class RwExploreActivity extends RwServiceWebActivity {
     public static final String LOGTAG = RwExploreActivity.class.getSimpleName();
-    private final static boolean D = true;
+    private final static boolean D = false;
 
     @Override
     protected String getUrl() {

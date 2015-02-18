@@ -59,7 +59,7 @@ public class RwListenActivity extends Activity {
 
     // Roundware tag type used in this activity
 
-    private final static boolean D = true;
+    private final static boolean D = false;
 
     // Roundware voting types used in this activity
     private final static String AS_VOTE_TYPE_FLAG = "flag";
