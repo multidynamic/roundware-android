@@ -15,9 +15,9 @@ import java.io.IOException;
 /**
  * Refine Activity
  */
-public class RwRefineActivity extends RwServiceWebActivity{
+public class RwRefineActivity extends RwWebActivity {
     public final static String RWREFINE_TAG_URI = "taguri";
-    private final static String LOGTAG = RwServiceWebActivity.class.getSimpleName();
+    private final static String LOGTAG = RwRefineActivity.class.getSimpleName();
     private final static String ROUNDWARE_TAGS_TYPE = "listen";
     private RWList mTagsList;
     private boolean mTagsChanged = false;
@@ -30,8 +30,6 @@ public class RwRefineActivity extends RwServiceWebActivity{
 
     @Override
     protected void handleOnServiceConnected(RWService service) {
-        super.handleOnServiceConnected(service);
-
         mTagsList = new RWList(mRwBinder.getTags().filterByType(ROUNDWARE_TAGS_TYPE));
         mTagsList.cullNonWebTags();
         mTagsList.restoreSelectionState(Settings.getSharedPreferences());
