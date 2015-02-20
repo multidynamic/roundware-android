@@ -81,7 +81,9 @@ public abstract class RwBoundActivity extends Activity {
 
     @Override
     protected void onStop() {
-        mRwBinder.unbindActivity();
+        if(mRwBinder != null) {
+            mRwBinder.unbindActivity();
+        }
         if (rwConnection != null) {
             unbindService(rwConnection);
         }
