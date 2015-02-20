@@ -1135,13 +1135,23 @@ public class RwSpeakActivity extends RwBoundActivity {
             this.filename = filename;
             this.submitted = submitted;
             this.errorMessage = errorMessage;
+
+
         }
 
         @Override
         protected String doInBackground(Void... params) {
             try {
                 if (SUBMIT_RECORDING) {
+                    // HACK: adding HARD-CODED community tag!!
+                    RWListItem community = new RWListItem(null, 153, "");
+                    community.setOn();
+                    this.selections.add(community);
+
                     mRwBinder.rwSubmit(selections, filename, submitted, true, !mIsRecordingGeneralFeedback);
+
+                    //HACK: remove hollow community tag
+                    this.selections.remove(community);
                 } else {
                     Log.d(TAG, "Submitting recording disabled in source code.");
                 }
