@@ -6,6 +6,7 @@ package org.roundware.rwapp;
 
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -31,6 +32,7 @@ import android.widget.ImageView;
 import android.widget.Toast;
 import android.widget.ViewFlipper;
 
+import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 
 import org.roundware.rwapp.utils.AssetImageManager;
@@ -61,11 +63,12 @@ public class RwMainActivity extends RwBoundActivity{
     private Button mFeedbackButton;
     private WebView mHiddenWebView;
 
+
     // fields
     private ProgressDialog mProgressDialog;
     private Intent mRwServiceIntent;
     private boolean mIsConnected;
-
+    private boolean mIsGooglePlayServiced = false;
     /**
      * Handles connection state to an RWService Android Service. In this
      * activity it is assumed that the service has already been started
@@ -162,6 +165,35 @@ public class RwMainActivity extends RwBoundActivity{
 
     @Override
     protected void onResume() {
+
+        if(!mIsGooglePlayServiced){
+            int avail = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
+            mIsGooglePlayServiced = (avail == ConnectionResult.SUCCESS);
+
+            if(avail == ConnectionResult.SERVICE_MISSING ||
+               avail == ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED ||
+               avail == ConnectionResult.SERVICE_DISABLED){
+                Log.w(LOGTAG, "Google service unavailable " + avail);
+                if(mProgressDialog != null) {
+                    mProgressDialog.dismiss();
+                }
+                Dialog dialog = GooglePlayServicesUtil.getErrorDialog(avail, this, 0, new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        RwMainActivity.this.stopRWServiceAndFinish();
+                    }
+                });
+                dialog.setOnDismissListener(new DialogInterface.OnDismissListener(){
+                    @Override
+                    public void onDismiss(DialogInterface dialog) {
+                        RwMainActivity.this.stopRWServiceAndFinish();
+                    }
+                });
+                dialog.show();
+            }
+        }
+
+
         // set up filter for the RWFramework events this activity is interested in
         IntentFilter filter = new IntentFilter();
 

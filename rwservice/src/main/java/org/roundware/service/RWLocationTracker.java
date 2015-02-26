@@ -5,15 +5,18 @@
 package org.roundware.service;
 
 import android.content.Context;
-import android.location.Criteria;
-import android.location.GpsStatus;
 import android.location.Location;
-import android.location.LocationListener;
 import android.location.LocationManager;
-import android.location.LocationProvider;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
 
 import java.util.Observable;
 
@@ -29,120 +32,41 @@ import java.util.Observable;
  *
  * @author Rob Knapen
  */
-public class RWLocationTracker extends Observable {
+
+// Some code adapted from https://github.com/googlesamples/android-SpeedTracker/blob/master/Wearable/src/main/java/com/example/android/wearable/speedtracker/WearableMainActivity.java
+// Apache License
+
+public class RWLocationTracker extends Observable implements GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener, com.google.android.gms.location.LocationListener {
 
     // debugging
     private final static String TAG = "RWLocationTracker";
     private final static boolean D = false;
 
     private static RWLocationTracker mSingleton;
-
     private Context mContext;
-    private LocationManager mLocationManager;
-    private String mCoarseLocationProvider;
-    private String mGpsLocationProvider;
-    private boolean mGpsLocationAvailable;
-    private boolean mUseGpsIfPossible;
-    private long mMinUpdateTime;
-    private float mMinUpdateDistance;
+
     private Location mLastLocation;
+    private long mLastUpdateMs = -1;
+
     private boolean mFixedLocation;
-    private boolean mUsingGpsLocation;
-    private boolean mUsingCoarseLocation;
 
 
-    /**
-     * LocationListener for the coarse (Network) location provider. Used
-     * to get notified when a new location is available.
-     */
-    private final LocationListener mCoarseLocationProviderListener = new LocationListener() {
+    //Google recommends a minimum of 5 seconds
+    private static final long UPDATE_INTERVAL_MS = 5 * 1000;
+    private static final long FASTEST_INTERVAL_MS = 5 * 1000;
 
-        public void onStatusChanged(String provider, int status, Bundle extras) {
-            if (D) { Log.d(TAG, "Coarse location provider status changed"); }
-        }
-
-        public void onProviderEnabled(String provider) {
-            if (D) { Log.d(TAG, "Coarse location provider enabled - finding last know location"); }
-            gotoLastKnownLocation();
-        }
-
-        public void onProviderDisabled(String provider) {
-            if (D) { Log.d(TAG, "Coarse location provider disabled"); }
-            updateWithNewLocation(null);
-        }
-
-        public void onLocationChanged(Location location) {
-            if (D) { Log.d(TAG, "Coarse location provider location changed"); }
-            if (mUsingCoarseLocation) {
-                gotoLastKnownLocation();
-            }
-        }
-    };
-
-
-    /**
-     * LocationListener for the GPS location provider. Used to get
-     * notified when a new location is available.
-     */
-    private final LocationListener mGpsLocationProviderListener = new LocationListener() {
-
-        public void onStatusChanged(String provider, int status, Bundle extras) {
-            if (D) { Log.d(TAG, "GPS location provider status changed"); }
-        }
-
-        public void onProviderEnabled(String provider) {
-            if (D) { Log.d(TAG, "GPS location provider enabled"); }
-            // not switching yet, waiting for first fix
-        }
-
-        public void onProviderDisabled(String provider) {
-            if (D) { Log.d(TAG, "GPS location provider disabled"); }
-        }
-
-        public void onLocationChanged(Location location) {
-            if (D) { Log.d(TAG, "GPS location provider location update"); }
-            if (mUsingGpsLocation) {
-                gotoLastKnownLocation();
-            }
-        }
-    };
-
-
-    /**
-     * GPS status listener, used to get notified about GPS availability and
-     * coordinate fixes. When GPS is available and has a first coordinate fix
-     * we will start using it, if it is no we switch back to using the coarse
-     * location provider.
-     */
-    private final GpsStatus.Listener mGpsStatusListener = new GpsStatus.Listener() {
-        @Override
-        public void onGpsStatusChanged(int event) {
-            switch (event) {
-                case GpsStatus.GPS_EVENT_FIRST_FIX:
-                    if (D) { Log.d(TAG, "GPS first fix"); }
-                    mGpsLocationAvailable = true;
-                    swithToGpsLocationUpdates();
-                    break;
-                case GpsStatus.GPS_EVENT_STARTED:
-                    if (D) { Log.d(TAG, "GPS started"); }
-                    mGpsLocationAvailable = false;
-                    break;
-                case GpsStatus.GPS_EVENT_STOPPED:
-                    if (D) { Log.d(TAG, "GPS stopped"); }
-                    mGpsLocationAvailable = false;
-                    switchToCoarseLocationUpdates();
-                    break;
-            }
-        }
-    };
-
+    private static final int LARGEST_INACCURACY_M = 150;
+    private static final float SMALLEST_DISPLACEMENT_M = 0.01f;
+    private static final float VERY_FAST_WALK_MPS = 2.0f;
+    private GoogleApiClient mGoogleApiClient;
 
     /**
      * Accesses the singleton instance.
      * 
      * @return singleton instance of the class
      */
-    public static RWLocationTracker instance() {
+    public synchronized static RWLocationTracker instance() {
         if (mSingleton == null) {
             mSingleton = new RWLocationTracker();
         }
@@ -155,11 +79,6 @@ public class RWLocationTracker extends Observable {
      */
     private RWLocationTracker() {
         mFixedLocation = false;
-        mMinUpdateTime = -1;
-        mMinUpdateDistance = -1;
-        mUseGpsIfPossible = false;
-        mUsingGpsLocation = false;
-        mUsingCoarseLocation = false;
     }
 
 
@@ -182,7 +101,7 @@ public class RWLocationTracker extends Observable {
      * @param longitude of the fixed location
      */
     public void fixLocationAt(Double latitude, Double longitude) {
-        Location l = new Location(mCoarseLocationProvider);
+        Location l = new Location(LocationManager.PASSIVE_PROVIDER);
         l.setLatitude(latitude);
         l.setLongitude(longitude);
         fixLocationAt(l);
@@ -207,7 +126,6 @@ public class RWLocationTracker extends Observable {
      */
     public void releaseFixedLocation() {
         mFixedLocation = false;
-        gotoLastKnownLocation();
     }
 
 
@@ -248,67 +166,17 @@ public class RWLocationTracker extends Observable {
      * @param context to be used
      * @return true if successful and a location provider is available
      */
-    public boolean init(Context context) {
-        if (mLocationManager != null) {
-            stopLocationUpdates();
-            mLocationManager = null;
-            mCoarseLocationProvider = null;
-            mGpsLocationProvider = null;
-        }
+    public void init(Context context) {
+
+        mGoogleApiClient = new GoogleApiClient.Builder(context)
+                .addApi(LocationServices.API)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .build();
+        mGoogleApiClient.connect();
 
         mContext = context;
-
-        mLocationManager = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
-        if (mLocationManager == null) {
-            Toast.makeText(context, R.string.roundware_no_location_service, Toast.LENGTH_SHORT).show();
-            return false;
-        }
-
-        boolean rc = getLocationProviders();
-        gotoLastKnownLocation();
-        return rc;
     }
-
-
-    /**
-     * Collects information about the available location providers on the
-     * device, and stores it in instance variables.
-     * 
-     * @return true if at least one location provider is available
-     */
-    public boolean getLocationProviders() {
-        // get the GPS location provider info
-        LocationProvider provider = mLocationManager.getProvider(LocationManager.GPS_PROVIDER);
-        if (provider != null) {
-            mGpsLocationProvider = provider.getName();
-            if (D) { Log.d(TAG, "GPS location provider name : " + mGpsLocationProvider); }
-        } else {
-            if (D) { Log.d(TAG, "GPS location provider not found on this device"); }
-            mGpsLocationProvider = null;
-        }
-
-        mGpsLocationAvailable = false;
-
-        // get a coarse (usually the network) location provider as backup
-        Criteria coarseCriteria = new Criteria();
-        coarseCriteria.setAccuracy(Criteria.ACCURACY_COARSE);
-        coarseCriteria.setAltitudeRequired(false);
-        coarseCriteria.setBearingRequired(false);
-        coarseCriteria.setCostAllowed(false);
-        coarseCriteria.setPowerRequirement(Criteria.NO_REQUIREMENT);
-
-        mCoarseLocationProvider = mLocationManager.getBestProvider(coarseCriteria, true);
-        if (D) { Log.d(TAG, "Coarse location provider name : " + mCoarseLocationProvider); }
-
-        // need to have at least one
-        if ((mGpsLocationProvider == null) && (mCoarseLocationProvider == null)) {
-            Toast.makeText(mContext, R.string.roundware_no_location_signal, Toast.LENGTH_SHORT).show();
-            return false;
-        }
-
-        return true;
-    }
-
 
     /**
      * Gets the last known location information. Note that this is not
@@ -332,6 +200,7 @@ public class RWLocationTracker extends Observable {
         }
 
         mLastLocation = location;
+        mLastUpdateMs = System.currentTimeMillis();
 
         if (D) {
             if (location != null) {
@@ -351,117 +220,17 @@ public class RWLocationTracker extends Observable {
 
 
     /**
-     * Accesses the most accurate available location provider on the device
-     * to get its last know position and uses it to set the internal state.
-     */
-    public void gotoLastKnownLocation() {
-        if (mLocationManager != null) {
-            Location l;
-            // check most accurate first
-            if (mUsingGpsLocation && mGpsLocationAvailable && (mGpsLocationProvider != null)) {
-                l = mLocationManager.getLastKnownLocation(mGpsLocationProvider);
-                updateWithNewLocation(l);
-                return;
-            }
-
-            // use less accurate network location
-            if (mCoarseLocationProvider != null) {
-                l = mLocationManager.getLastKnownLocation(mCoarseLocationProvider);
-                updateWithNewLocation(l);
-                return;
-            }
-        }
-
-        if (mContext != null) {
-            Toast.makeText(mContext, R.string.roundware_lost_location_signal, Toast.LENGTH_SHORT).show();
-        }
-    }
-
-
-    /**
      * Starts receiving location updates from the devices' location providers.
      * Initially the Network location will be used and a listener started to
      * wait for GPS availability and first coordinate fix, which then will be
      * switched to.
-     * 
+     *
      * @param minTime (msec) allowed between location updates
      * @param minDistance (m) for location updates
      * @param useGps when available on the device
      */
     public void startLocationUpdates(long minTime, float minDistance, boolean useGps) {
-        mMinUpdateTime = minTime;
-        mMinUpdateDistance = minDistance;
-        mUsingGpsLocation = false;
-        mUsingCoarseLocation = false;
-        mUseGpsIfPossible = useGps;
-        switchToCoarseLocationUpdates();
-        if ((mLocationManager != null) && (mUseGpsIfPossible)) {
-            mLocationManager.addGpsStatusListener(mGpsStatusListener);
-        }
-    }
-
-
-    /**
-     * Switches from using Network location updates to GPS location updates.
-     */
-    public void swithToGpsLocationUpdates() {
-        if (mUsingGpsLocation) {
-            return;
-        }
-        if ((mLocationManager != null) && (mUseGpsIfPossible)) {
-            if (D) {
-                Log.d(TAG, "Using GPS location updates. minTime=" + mMinUpdateTime + ", " + "minDistance=" + mMinUpdateDistance);
-            }
-            // clean up first
-            mLocationManager.removeUpdates(mCoarseLocationProviderListener);
-            mLocationManager.removeUpdates(mGpsLocationProviderListener);
-            mUsingGpsLocation = false;
-            mUsingCoarseLocation = false;
-
-            // set new listeners
-            if (mGpsLocationProvider != null) {
-                mLocationManager.requestLocationUpdates(mGpsLocationProvider, mMinUpdateTime, mMinUpdateDistance, mGpsLocationProviderListener);
-                mUsingGpsLocation = true;
-            }
-
-            // update location info
-            gotoLastKnownLocation();
-        }
-    }
-
-
-    /**
-     * Switches from using GPS location updates to Network location updates.
-     */
-    public void switchToCoarseLocationUpdates() {
-        if (mUsingCoarseLocation) {
-            return;
-        }
-        if (mLocationManager != null) {
-            if (D) {
-                Log.d(TAG, "Using coarse location updates and monitoring GPS " +
-                        "status. minTime=" + mMinUpdateTime + ", " +
-                        "minDistance=" + mMinUpdateDistance);
-            }
-            // clean up first
-            mLocationManager.removeUpdates(mCoarseLocationProviderListener);
-            mLocationManager.removeUpdates(mGpsLocationProviderListener);
-            mUsingCoarseLocation = false;
-            mUsingGpsLocation = false;
-
-            // set new listeners
-            if (mCoarseLocationProvider != null) {
-                mLocationManager.requestLocationUpdates(mCoarseLocationProvider, mMinUpdateTime, mMinUpdateDistance, mCoarseLocationProviderListener);
-                mUsingCoarseLocation = true;
-            }
-
-            if ((mGpsLocationProvider != null) && (mUseGpsIfPossible)) {
-                mLocationManager.requestLocationUpdates(mGpsLocationProvider, mMinUpdateTime, mMinUpdateDistance, mGpsLocationProviderListener);
-            }
-
-            // update location info
-            gotoLastKnownLocation();
-        }
+        //ignore this!
     }
 
 
@@ -470,13 +239,75 @@ public class RWLocationTracker extends Observable {
      * is no longer needed, to reduce power consumption.
      */
     public void stopLocationUpdates() {
-        mUsingGpsLocation = false;
-        mUsingCoarseLocation = false;
-        if (mLocationManager != null) {
-            if (D) { Log.d(TAG, "Stopping coarse and GPS location updates"); }
-            mLocationManager.removeUpdates(mCoarseLocationProviderListener);
-            mLocationManager.removeUpdates(mGpsLocationProviderListener);
-            mLocationManager.removeGpsStatusListener(mGpsStatusListener);
+        if(mGoogleApiClient != null) {
+            if (mGoogleApiClient.isConnected()) {
+                LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+            }
+            mGoogleApiClient.disconnect();
+        }
+    }
+
+
+    @Override
+    public void onConnected(Bundle bundle) {
+        LocationRequest locationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setSmallestDisplacement(SMALLEST_DISPLACEMENT_M)
+                .setInterval(UPDATE_INTERVAL_MS)
+                .setFastestInterval(FASTEST_INTERVAL_MS);
+
+        LocationServices.FusedLocationApi
+                .requestLocationUpdates(mGoogleApiClient, locationRequest, this)
+                .setResultCallback(new ResultCallback<Status>() {
+
+                    @Override
+                    public void onResult(Status status) {
+                        if (status.getStatus().isSuccess()) {
+                            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                                Log.d(TAG, "Successfully requested location updates");
+                            }
+                        } else {
+                            Log.e(TAG,
+                                    "Failed in requesting location updates, "
+                                            + "status code: "
+                                            + status.getStatusCode() + ", message: " + status
+                                            .getStatusMessage());
+                        }
+                    }
+                });
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "onConnectionSuspended(): connection to location client suspended");
+        }
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        Log.e(TAG, "onConnectionFailed(): connection to location client failed");
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if( location.getAccuracy() < LARGEST_INACCURACY_M ) {
+            if (location.getSpeed() > VERY_FAST_WALK_MPS) {
+                Log.w(TAG, "Location speed is fast: " + location.getSpeed());
+                //panic
+                return;
+            }
+            if (mLastLocation != null && mLastUpdateMs != -1) {
+                float calcSpeed = mLastLocation.distanceTo(location) / (System.currentTimeMillis() - mLastUpdateMs);
+                if (calcSpeed > VERY_FAST_WALK_MPS) {
+                    Log.w(TAG, "Calculated speed is fast: " + calcSpeed);
+                    //panic
+                    return;
+                }
+            }
+
+            updateWithNewLocation(location);
         }
     }
 

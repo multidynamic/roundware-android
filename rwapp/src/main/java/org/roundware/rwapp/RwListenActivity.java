@@ -474,6 +474,7 @@ public class RwListenActivity extends RwBoundActivity {
                 //load
                 // set below true, to view image source debugging
                 mPicasso.setIndicatorsEnabled(false);
+                mAssetImageLayout.setVisibility( TextUtils.isEmpty(mCurrentAsset.description) ? View.INVISIBLE : View.VISIBLE);
                 mAssetTextView.setText(mCurrentAsset.description);
                 mPicasso.load(mCurrentAsset.url)
                         .noFade()
