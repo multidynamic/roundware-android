@@ -94,6 +94,7 @@ public class RwListenActivity extends RwBoundActivity {
     private AssetImageManager mAssetImageManager = null;
     private boolean mStartPlaybackOnResume = false;
     private boolean mWasPlaying = true;
+    private Picasso mPicasso = null;
 
 
     /**
@@ -214,6 +215,8 @@ public class RwListenActivity extends RwBoundActivity {
     protected void onResume() {
         if (D) { Log.d(LOGTAG, "+++ onResume +++"); }
         super.onResume();
+
+        mPicasso = Picasso.with(this);
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(RW.READY_TO_PLAY);
@@ -423,7 +426,7 @@ public class RwListenActivity extends RwBoundActivity {
 
         if (!TextUtils.isEmpty(url)) {
             //pre-load into cache
-            Picasso.with(this).load(url);
+            mPicasso.load(url);
         }
     }
 
@@ -469,10 +472,10 @@ public class RwListenActivity extends RwBoundActivity {
             boolean showUrl = hasUrl && (mRwBinder.getVolumeLevel() > 0);
             if (showUrl) {
                 //load
-                Picasso picasso = Picasso.with(this);
                 // set below true, to view image source debugging
-                picasso.setIndicatorsEnabled(false);
-                picasso.load(mCurrentAsset.url)
+                mPicasso.setIndicatorsEnabled(false);
+                mAssetTextView.setText(mCurrentAsset.description);
+                mPicasso.load(mCurrentAsset.url)
                         .noFade()
                         .into(mAssetImageView, new Callback() {
                             @Override
@@ -486,7 +489,7 @@ public class RwListenActivity extends RwBoundActivity {
 
                             @Override
                             public void onError() {
-                                Log.w(LOGTAG, "Image load failure!");
+                                Log.w(LOGTAG, "Image load failure! " + assetData.url);
                                 mAssetImageLayout.setVisibility(View.INVISIBLE);
                             }
                         });
